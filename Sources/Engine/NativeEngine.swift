@@ -11,7 +11,12 @@ import Foundation
 @available(macOS 10.15, iOS 13.0, watchOS 6.0, tvOS 13.0, *)
 public class NativeEngine: NSObject, Engine, URLSessionDataDelegate, URLSessionWebSocketDelegate {
     private var task: URLSessionWebSocketTask?
+    private var certificatePinning: CertificatePinning?
     weak var delegate: EngineDelegate?
+
+    public init(certificatePinning: CertificatePinning? = nil) {
+        self.certificatePinning = certificatePinning
+    }
 
     public func register(delegate: EngineDelegate) {
         self.delegate = delegate
@@ -93,5 +98,21 @@ public class NativeEngine: NSObject, Engine, URLSessionDataDelegate, URLSessionW
             r = String(data: d, encoding: .utf8) ?? ""
         }
         broadcast(event: .disconnected(r, UInt16(closeCode.rawValue)))
+    }
+
+    public func urlSession(_ session: URLSession, didReceive challenge: URLAuthenticationChallenge, completionHandler: @escaping (URLSession.AuthChallengeDisposition, URLCredential?) -> Void) {
+        guard let trust = challenge.protectionSpace.serverTrust, let certificatePinning = certificatePinning else {
+            completionHandler(.performDefaultHandling, nil)
+            return
+        }
+
+        certificatePinning.evaluateTrust(trust: trust, domain: nil) { state in
+            switch state {
+            case .success:
+                completionHandler(.useCredential, URLCredential(trust: trust))
+            case .failed:
+                completionHandler(.performDefaultHandling, nil)
+            }
+        }
     }
 }
